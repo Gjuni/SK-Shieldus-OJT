@@ -1,6 +1,7 @@
 # SK-Shieldus-OJT
 On the Job Training Sk Shieldus
 
+![OPEN API docs](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create)
 
 파일 관리
 --
