@@ -23,3 +23,5 @@ Convention
 Issue : 해당 산출물 내용
 
 Branch : OJT-Day-XX
+
+Pull Request : [OJT] Day XX
