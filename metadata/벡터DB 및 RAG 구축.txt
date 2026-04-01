@@ -1,0 +1,140 @@
+### 벡터 DB 및 RAG 구축
+
+- Embedding
+    
+    ```java
+    Text, Image, Audio, Coordinate와 같은 원시 데이터를 "Vector"라고 하는 숫자 시퀀스로 변환한 후
+    이 벡터를 다차원 수학 공간에 배치하는 과정이다.
+    
+    변환된 Vector는 단어나 문장의 의미적, 문맥적 유사성을 반영하여 기계 학습 모델이 텍스트 데이터를 더 잘 이해하고 처리할 수 있게 돕는다.
+    ex) '왕'과 '여왕'과 같이 의미적으로 관련된 단어들은 벡터 공간에서 서로 가까운 위치에 임베딩될 가능성이 높다.
+    ```
+    
+    - 의문 (의미적으로 관련된 단어란?)
+        
+        ```python
+        **Q.** "의미적으로 관련된 단어" 해당 의미가 컴퓨터에서 어떻게 작용되는지 궁금하다.
+        컴퓨터는 숫자는 이해하지만 글자는 모른다. 즉 사람은 왕과 여왕이 유사하다는 것을 알지만 컴퓨터는 그 존재를 모르기 때문에 어떻게 가까운 위치에 배치하는지 궁금하고
+        왕과 여왕은 같은 글자 왕이 있기에 가까운 위치에 배치될 수도 있다. 하지만 다른 예시로 개와 고양이의 경우 같은 글자가 없지만, 컴퓨터는 둘을 '동물'이라는 키워드로 매핑되며 특히나 개와 고양이는 각별한 사이로 인간이 알고 있다. 하지만 컴퓨터는 이를 모르기 때문에 어떻게 가까이 매핑하는지 궁금하다.
+        
+        **A.** **분포 가설**이라는 언어학적 원리가 존재함.
+        	비슷한 문맥에서 등장하는 단어들은 비슷한 의미를 가진다.
+        	
+        	즉 글자가 달라도 문장 속에서 완벽히 똑같은 위치와 상황을 대체할 수 있다는 점을 활용함.
+        	
+        	"의미적으로 관련된 단어"란, "문장 속에서 함께 쓰이는 주변 단어들의 통계적 분포가 유사한 단어"를 의미함.
+        ```
+        
+    - 의문 2 (문장을 이해하는 방법 Tokenizer)
+        
+        ```java
+        1. 문장을 조각내고 고유 번호표 붙이기 (Tokenizer)
+        	
+        		컴퓨터는 사람이 정해준 규칙에 따라 문장을 잘게 쪼갬.
+        		각 단어에 고유한 일련번호(번호표)를 부여한다.
+        ```
+        
+    
+    [embedding (임베딩)](https://wikidocs.net/141213)
+    
+    [ORBRO | A Specialized Platform for Location Tracking and Digital Twin](https://orbro.io/en/blog/what-is-embedding?srsltid=AfmBOorShCiwawVT0nc6E1C2w1iHS6fIsvJFaykOa9xilIieBjRWIXuM)
+    
+- Vector DB
+    
+    ```java
+    고차원 벡터 임베딩을 저장, 관리, 검색하도록 설계된 특수 데이터베이스
+    
+    주요 기능 : LLM이 쿼리할 수 있는 외부 시직 기반으로 활용
+    						지식 기반에 저장된 데이터를 바탕으로 모델의 응답을 "Grounding"하고, 
+    						환각 발생 위험을 줄임
+    						
+    핵심 내용 : 키워드를 일치시키는 것이 아닌
+    						개념적으로 유사한 데이터 포인트를 식별하는 의미적 유사성(Semantic Similarity) 검색을 수행하는 것.
+    						
+    						데이터베이스가 생성한 벡터 공간에서 관련 항목이 서로 가까이 배치되어 있다.
+    						시스템 관련성에 따라 결과의 순위를 매길 수 있다.
+    ```
+    
+    [벡터 데이터베이스란 무엇인가? | 벡터 데이터베이스 종합 안내서](https://www.elastic.co/kr/what-is/vector-database)
+    
+    - Grounding
+        
+        ```java
+        LLM이 더욱 정확하고 관련성이 있으며, 상황에 맞는 응답을 생성할 수 있도록 지원하는 중요한 기술
+        
+        학습 데이터셋에 포함되지 않았던 특정 사용 사례 중심의 정보를 LLM에게 전달함으로써 정확/정교한 정보를 전달하게 만듦.
+        
+        즉, 더욱 정교한 답변을 생성하기 위한 과정
+        ```
+        
+        [텍스트 임베딩을 사용하여 LLM 그라운딩하는 방법 | Google Cloud 블로그](https://cloud.google.com/blog/ko/products/ai-machine-learning/how-to-use-grounding-for-your-llms-with-text-embeddings)
+        
+- RAG, Prompt stuffing
+    
+    ```java
+    RAG : 대규모 문서에서 관련성 있는 부분을 외부 지식 기반에서 선택적으로 가져와 LLM의 응답을 향상 시키는 기술
+    
+    강점 :
+    				1. 간결한 쿼리에 효율적 : 특정 정보만 필요할 때 탁월한 성능을 발휘함
+    				2. 환각 감소 : 외부 소스에서 얻은 실제 데이터를 모델에 입력하기 때문에 신뢰되는 답변을 기대할 수 있음
+    				3. 동적 컨텐츠에 매우 적합 : 자주 변경되는 정보에 대해서 최신 컨텐츠를 가져올 수 있다.
+    
+    한계 : 
+    				1. 청크 분할 제약 조건 : 문서가 청크로 분할되어야 하며, 시스템이 청크를 가져올 때 몇몇 청크만 가져오기에 중요 정보가 누락될 수 있음.
+    				2. 문서 무결성 손실 : 문서를 나누게 되면 논리적인 흐름이 깨질 수 있음. 
+    				3. 컨텍스트 길이 증가에 따른 성능 저하 : GPT-4o의 경우 입력값이 최대 Context 길이의 약 50%를 넘어가면 성능이 저하됨
+    ```
+    
+    ```java
+    Prompt Stuffing : RAG와 같이 일부 데이터를 조각 처럼 사용 것과 다르게 **모든 데이터를 한 번에 주입하여 단일 LLM  호출을 수행함.**
+    
+    장점 :
+    				1. 문맥 이해 향상 : 모델이 모든 데이터를 직접 확인하기에 검색 누락 현상이 적어짐.
+    				2. 구현 간소화 : 복잡한 DB 파이프라인이 필요 없어 구현이 빠르다.
+    	
+    단점 : 
+    				1. 토큰 비용 및 속도 : 많은 토큰을 소모하여 비싸고, 처리 속도가 느려짐.
+    				2. 컨텍스트 창 고갈 : 문서 전체를 검토 시 LLM의 컨텍스트 제한을 초과할 수 있다. 	
+    				3. 컨텍스트 길이 증가에 따른 성능 저하 : GPT-4o의 경우 입력값이 최대 Context 길이의 약 50%를 넘어가면 성능이 저하됨
+    				4. 비효율적
+    ```
+    
+    [RAG vs. Prompt Stuffing: Overcoming Context Window Limits for Large, Information-Dense Documents](https://www.spyglassmtg.com/blog/rag-vs.-prompt-stuffing-overcoming-context-window-limits-for-large-information-dense-documents)
+    
+- RAG pipleline
+    
+    ```java
+    1. 데이터 준비
+    2. 데이터 쪼개기 (Tokenizer)
+    3. 의미 추출 (Embeding)
+    4. 벡터 저장소에 넣기 (Vector DB)
+    → 사용자 질의
+    6. 질문 Vector화
+    7. 관련 문서 검색 (Vector DB + 문맥 검색)
+    8. 문서 조합해서 LLM에게 전달 (Context 포함)
+    9. LLM 사고 시작 (Chaining)
+    10. 답변 생성
+    ```
+    
+    [RAG Pipeline](https://velog.io/@jiyunwoo/RAG-Pipeline)
+    
+- Context boundary, Instruction/Data separation
+    
+    ```java
+    Context Boundary : 도메인을 하위 도메인으로 구분하는 것
+    
+    하위 도메인을 구분하는 이유 : 같은 용어라도 의미가 다르고 같은 대상이라도 용어가 다를 수 있기 때문
+    														 즉 하위 도메인에 따른 또 다른 모델을 만드는 것이 적절함.
+    ```
+    
+    [DDD - Bounded Context](https://nesoy.github.io/blog/DDD-Bounded-Context)
+    
+    ```java
+    Insruction / Data Separation
+    		모델이 처리해야 할 실행 가능한 Instruction (지시사항)과 
+    		단순히 처리되어야할 Data(내용)을 명확하게 구분하는 능력
+    
+    문제 발생 시점 :
+    		LLM은 명령과 데이터를 혼동하여 데이터 내의 내용을 명령어인 것처럼 오인하여 처리하는 경우가 많음.
+    		
+    ```
