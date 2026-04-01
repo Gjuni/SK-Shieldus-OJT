@@ -11,6 +11,10 @@ SYSTEM_PROMPT = """
 당신은 사용자의 질문에 답변하는 AI 어시스턴트입니다.
 사용자가 계산을 요청하면 calc 함수를 사용하세요. (a, b는 숫자 c는 연산자입니다.)
 사용자가 시간을 요청하면 get_time 함수를 사용하세요.
+사용자가 파일을 읽어달라고 하면 read_file 함수를 사용하세요. (filename은 파일 이름입니다.)
+사용자가 파일을 작성해달라고 하면 write_file 함수를 사용하세요. (filename은 파일 이름입니다.)
+사용자가 쉘 명령어를 실행해달라고 하면 shell_exec 함수를 사용하세요. (command는 쉘 명령어입니다.)
+사용자가 파이썬 코드를 실행해달라고 하면 python_eval 함수를 사용하세요. (code는 파이썬 코드입니다.)
 """
 
 RAG_SYSTEM_PROMPT = """
@@ -30,22 +34,12 @@ funcs = {
     "read_file": read_file,
 }
 
-def run_orchestration(user_input: str, temperature: float = 0.7, top_p: float = 0.7, n_results: int = 3) -> str:
-
-    # 사용자 input 쿼리화
-    query_vector_user_input = vectorize_query(user_input)
-
-    ## 문서 찾기
-    results = collection.query(query_embeddings=[query_vector_user_input], n_results=n_results)
-
-    docs = results["documents"][0]
-    context = "\n---\n".join(docs)
-
+def run_orchestration(user_input: str, temperature: float = 0.7, top_p: float = 0.7) -> str:
     msg = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_input + "\n\n[Context]\n" + context}
-        ]
-    
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": user_input}
+    ]
+
     ## 도구 선정
     res = client.chat.completions.create(model="gpt-4o-mini", messages=msg, tools=OPENAI_TOOLS+VULN_OPENAI_TOOLS, temperature=temperature, top_p=top_p)
 
@@ -81,4 +75,22 @@ def run_orchestration(user_input: str, temperature: float = 0.7, top_p: float = 
         
         msg.append({"tool_call_id": t.id, "role": "tool", "name": t.function.name, "content": ans})
 
+    ## 최종 답변
     return client.chat.completions.create(model="gpt-4o-mini", messages=msg, temperature=temperature, top_p=top_p).choices[0].message.content
+
+
+## Rag Agent
+def run_rag(user_input: str, n_results: int = 3) -> str:
+    ## 질문 Vector화
+    query_vector = vectorize_query(user_input)
+
+    ## 관련 문서 검색
+    results = collection.query(query_embeddings=[query_vector], n_results=n_results)
+    context = "\n---\n".join(results["documents"][0])
+
+    ## Context 포함하여 LLM 호출 (Tool 없음)
+    msg = [
+        {"role": "system", "content": RAG_SYSTEM_PROMPT},
+        {"role": "user",   "content": f"[Context]\n{context}\n\n[질문]\n{user_input}"}
+    ]
+    return client.chat.completions.create(model="gpt-4o-mini", messages=msg).choices[0].message.content
