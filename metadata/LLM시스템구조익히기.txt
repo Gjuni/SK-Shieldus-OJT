@@ -1,0 +1,68 @@
+### LLM 시스템 구조 익히기
+
+- LLM 서비스 아키텍처
+    
+    ![image.png](attachment:dce0496c-a45e-46be-8a1e-9e7170decd47:image.png)
+    
+    ```jsx
+    Safety filter : LLM으로 들어온 질의와 응답에 대해서 부적절한 내용인지를 판단하는 필터링 역할
+    								패턴 기반도 존재하나 RAG를 통한 데이터 기반 필터링도 존재함.
+    								
+    Prompt Template : LLM에서 프롬프트는 시나리오에 따라 재사용될 수 있음. 그러한 템플릿을 만들어 재사용성을 높임.
+    
+    Example Selector : 질문과 답변에 대한 예제를 첨부하여 LLM의 응답 정확도를 높이는 방법
+    ```
+    
+- Prompt Template
+    
+    ![image.png](attachment:73d4d604-728f-472e-ad39-a51789738dd3:image.png)
+    
+    ```jsx
+    LLM에서 프롬프트는 시나리오에 따라 재사용될 수 있음. 그러한 템플릿을 만들어 재사용성을 높임.
+    ```
+    
+- Tool Calling (Function Calling)
+    
+    ```jsx
+    Tool : LLM이 외부 세계와 상호작용하기 위해 사용하는 인터페이스
+           특정 작업을 수행하는 함수(날씨 정보 검색, 데이터베이스 조회) 형태로 제공
+    
+    Tool Calling : LLM이 외부 API를 호출하거나, 특정 함수를 실행하거나, 다른 소프트웨어와 상호작용하는 것을 말함.
+    ```
+    
+    ```jsx
+    1. 도구 정의 : Agent가 사용할 수 있는 도구 정의
+    2. 도구 설명 : LLM에게 각 도구의 기능, 입력/출력 형식 등을 설명
+    3. LLM 추론 : LLM은 사용자 요청과 도구 설명 기반으로 어떤 도구를 호출할지, 어떤 파라미터를 사용할지 결정
+    4. 도구 실행 : LLM의 요청에 따라 실제 도구를 실행하고, 그 결과를 LLM에게 반환함
+    5. 결과 종합 : LLM은 도구 실행 결과를 종합하여 사용자에게 최종 응답 제공
+    ```
+    
+    [Agent의 기반이 되는 LLM Tool Calling: ① 개념 알기](https://uracle.blog/2025/03/28/agent%EC%9D%98-%EA%B8%B0%EB%B0%98%EC%9D%B4-%EB%90%98%EB%8A%94-llm-tool-calling/)
+    
+- Trust Boundary
+    
+    ```jsx
+    시스템 내 구성 요소 간 신뢰 수준이 다른 경계를 식별
+    이들 경계를 기준으로 보안 위협을 구조적으로 식별 • 평가하는 위협 분석 기법
+    ```
+    
+- Attack Surface
+    
+    ```jsx
+    네트워크, 민감한 데이터에 무단으로 접근하거나 사이버 공격을 수행할 수 있는 경로, 방법들이다.
+    ```
+    
+    [공격 표면이란 무엇인가요? | IBM](https://www.ibm.com/kr-ko/think/topics/attack-surface)
+    
+- Agent Loop 구조 (LLM → Tool → LLM)
+    
+    ```jsx
+    1. 입력 프롬프트 준비
+    	 토큰 기반으로 정수 시퀀스로 변환되어 모델에게 전달됨.
+    	 
+    2. 모델 추론
+    	 도구 호출
+    	 
+    3. 도구 실행
+    ```
