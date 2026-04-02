@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Multi-Agent Chat</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    :root {
+      --bg: #0d0d0d;
+      --sidebar: #171717;
+      --surface: #1e1e1e;
+      --border: #2a2a2a;
+      --accent: #10a37f;
+      --accent-h: #0d8c6c;
+      --user-bg: #2f2f2f;
+      --ai-bg: transparent;
+      --text: #ececec;
+      --sub: #8e8ea0;
+      --input-bg: #2f2f2f;
+      --radius: 12px;
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      display: flex;
+      overflow: hidden;
+    }
+
+    /* ── Sidebar ─────────────────────────── */
+    aside {
+      width: 260px;
+      background: var(--sidebar);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      padding: 16px 12px;
+      flex-shrink: 0;
+    }
+
+    .sidebar-logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 10px 20px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 16px;
+    }
+
+    .sidebar-logo .icon {
+      width: 32px;
+      height: 32px;
+      background: var(--accent);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 17px;
+    }
+
+    .sidebar-logo span {
+      font-weight: 600;
+      font-size: 15px;
+    }
+
+    .new-chat-btn {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 14px;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text);
+      font-size: 14px;
+      font-family: 'Inter', sans-serif;
+      cursor: pointer;
+      transition: background .15s;
+      width: 100%;
+    }
+
+    .new-chat-btn:hover {
+      background: var(--surface);
+    }
+
+    .history-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--sub);
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      padding: 18px 10px 8px;
+    }
+
+    .history-list {
+      flex: 1;
+      overflow-y: auto;
+    }
+
+    .history-item {
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 13px;
+      color: var(--sub);
+      cursor: pointer;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      transition: background .15s, color .15s;
+    }
+
+    .history-item:hover {
+      background: var(--surface);
+      color: var(--text);
+    }
+
+    .history-item.active {
+      background: var(--surface);
+      color: var(--text);
+    }
+
+    .sidebar-footer {
+      border-top: 1px solid var(--border);
+      padding-top: 12px;
+      font-size: 12px;
+      color: var(--sub);
+      text-align: center;
+    }
+
+    /* ── Main chat area ──────────────────── */
+    main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+
+    /* Header */
+    header {
+      padding: 14px 24px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--bg);
+      flex-shrink: 0;
+    }
+
+    .model-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--sub);
+    }
+
+    .model-badge .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--accent);
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+
+      0%,
+      100% {
+        opacity: 1;
+      }
+
+      50% {
+        opacity: .4;
+      }
+    }
+
+    /* Messages */
+    #chat-window {
+      flex: 1;
+      overflow-y: auto;
+      padding: 32px 0;
+      scroll-behavior: smooth;
+    }
+
+    #chat-window::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    #chat-window::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    #chat-window::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 3px;
+    }
+
+    .message-row {
+      display: flex;
+      padding: 6px 24px;
+      gap: 16px;
+      max-width: 860px;
+      margin: 0 auto;
+      width: 100%;
+      animation: fadeIn .25s ease;
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(6px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .avatar.user {
+      background: #5765f2;
+    }
+
+    .avatar.ai {
+      background: var(--accent);
+    }
+
+    .msg-content {
+      flex: 1;
+      padding-top: 4px;
+      font-size: 15px;
+      line-height: 1.75;
+      color: var(--text);
+      min-width: 0;
+    }
+
+    .msg-content .name {
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 6px;
+      color: var(--sub);
+    }
+
+    .msg-content pre {
+      background: #161616;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px 16px;
+      overflow-x: auto;
+      font-size: 13px;
+      margin: 10px 0;
+      font-family: 'Courier New', monospace;
+    }
+
+    /* Empty state */
+    #empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      gap: 16px;
+      color: var(--sub);
+      user-select: none;
+    }
+
+    #empty-state .big-icon {
+      width: 64px;
+      height: 64px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 30px;
+    }
+
+    #empty-state h2 {
+      font-size: 22px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    #empty-state p {
+      font-size: 14px;
+    }
+
+    /* Suggestions */
+    .suggestions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      justify-content: center;
+      margin-top: 8px;
+    }
+
+    .suggestion-chip {
+      padding: 9px 16px;
+      border-radius: 100px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      font-size: 13px;
+      cursor: pointer;
+      transition: border-color .15s, background .15s;
+    }
+
+    .suggestion-chip:hover {
+      border-color: var(--accent);
+      background: rgba(16, 163, 127, .08);
+    }
+
+    /* Typing indicator */
+    .typing-dot {
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--sub);
+      margin: 0 2px;
+      animation: blink 1.2s ease-in-out infinite;
+    }
+
+    .typing-dot:nth-child(2) {
+      animation-delay: .2s;
+    }
+
+    .typing-dot:nth-child(3) {
+      animation-delay: .4s;
+    }
+
+    @keyframes blink {
+
+      0%,
+      80%,
+      100% {
+        transform: scale(.8);
+        opacity: .5;
+      }
+
+      40% {
+        transform: scale(1.2);
+        opacity: 1;
+      }
+    }
+
+    /* ── Input area ──────────────────────── */
+    .input-area {
+      padding: 16px 24px 24px;
+      background: var(--bg);
+      flex-shrink: 0;
+    }
+
+    .input-wrapper {
+      max-width: 860px;
+      margin: 0 auto;
+      background: var(--input-bg);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      display: flex;
+      align-items: flex-end;
+      gap: 8px;
+      padding: 12px 14px;
+      transition: border-color .2s;
+    }
+
+    .input-wrapper:focus-within {
+      border-color: var(--accent);
+    }
+
+    #user-input {
+      flex: 1;
+      background: transparent;
+      border: none;
+      outline: none;
+      color: var(--text);
+      font-size: 15px;
+      font-family: 'Inter', sans-serif;
+      resize: none;
+      max-height: 180px;
+      line-height: 1.6;
+    }
+
+    #user-input::placeholder {
+      color: var(--sub);
+    }
+
+    #send-btn {
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      background: var(--accent);
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      transition: background .15s, transform .1s;
+    }
+
+    #send-btn:hover:not(:disabled) {
+      background: var(--accent-h);
+      transform: scale(1.05);
+    }
+
+    #send-btn:disabled {
+      background: var(--border);
+      cursor: not-allowed;
+    }
+
+    #send-btn svg {
+      width: 17px;
+      height: 17px;
+      fill: white;
+    }
+
+    .input-hint {
+      max-width: 860px;
+      margin: 8px auto 0;
+      font-size: 11px;
+      color: var(--sub);
+      text-align: center;
+    }
+  </style>
+</head>
+
+<body>
+
+  <!-- ── Sidebar ─────────────────────────────────────────────── -->
+  <aside>
+    <div class="sidebar-logo">
+      <div class="icon">🤖</div>
+      <span>Multi-Agent AI</span>
+    </div>
+
+    <button class="new-chat-btn" onclick="newChat()">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <line x1="12" y1="5" x2="12" y2="19" />
+        <line x1="5" y1="12" x2="19" y2="12" />
+      </svg>
+      새 대화
+    </button>
+
+    <div class="history-title">대화 기록</div>
+    <div class="history-list" id="history-list"></div>
+
+    <div class="sidebar-footer">
+      gpt-4o-mini · RAG + Tool Agent
+    </div>
+  </aside>
+
+  <!-- ── Main ───────────────────────────────────────────────── -->
+  <main>
+    <header>
+      <div class="model-badge">
+        <div class="dot"></div>
+        Multi-Agent Chat
+      </div>
+      <div style="font-size:12px;color:var(--sub);">localhost:8000</div>
+    </header>
+
+    <div id="chat-window">
+      <div id="empty-state">
+        <div class="big-icon">✨</div>
+        <h2>무엇을 도와드릴까요?</h2>
+        <p>계산, 시간, 파일 작업, 문서 검색까지 — 뭐든 물어보세요</p>
+        <div class="suggestions">
+          <div class="suggestion-chip" onclick="sendSuggestion('지금 몇 시야?')">🕒 지금 몇 시야?</div>
+          <div class="suggestion-chip" onclick="sendSuggestion('125 * 43 계산해줘')">🔢 125 × 43 계산해줘</div>
+          <div class="suggestion-chip" onclick="sendSuggestion('LLM이 뭐야?')">📚 LLM이 뭐야?</div>
+          <div class="suggestion-chip" onclick="sendSuggestion('RAG 시스템 설명해줘')">🗂️ RAG 시스템 설명해줘</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="input-area">
+      <div class="input-wrapper">
+        <textarea id="user-input" rows="1" placeholder="메시지를 입력하세요... (Shift+Enter로 줄바꿈)" oninput="autoResize(this)"
+          onkeydown="handleKey(event)"></textarea>
+        <button id="send-btn" onclick="sendMessage()" title="전송">
+          <svg viewBox="0 0 24 24">
+            <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
+          </svg>
+        </button>
+      </div>
+      <div class="input-hint">Enter로 전송 · Shift+Enter로 줄바꿈</div>
+    </div>
+  </main>
+
+  <script>
+    const API = 'http://localhost:8000/chat';
+    let sessions = [];          // [{ title, messages: [{role, text}] }]
+    let currentIdx = -1;
+    let isLoading = false;
+
+    // ── Auto-resize textarea ──────────────────────────────────
+    function autoResize(el) {
+      el.style.height = 'auto';
+      el.style.height = Math.min(el.scrollHeight, 180) + 'px';
+    }
+
+    // ── Keyboard handler ──────────────────────────────────────
+    function handleKey(e) {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+      }
+    }
+
+    // ── New chat ──────────────────────────────────────────────
+    function newChat() {
+      currentIdx = -1;
+      document.getElementById('chat-window').innerHTML = `
+      <div id="empty-state">
+        <div class="big-icon">✨</div>
+        <h2>무엇을 도와드릴까요?</h2>
+        <p>계산, 시간, 파일 작업, 문서 검색까지 — 뭐든 물어보세요</p>
+        <div class="suggestions">
+          <div class="suggestion-chip" onclick="sendSuggestion('지금 몇 시야?')">🕒 지금 몇 시야?</div>
+          <div class="suggestion-chip" onclick="sendSuggestion('125 * 43 계산해줘')">🔢 125 × 43 계산해줘</div>
+          <div class="suggestion-chip" onclick="sendSuggestion('LLM이 뭐야?')">📚 LLM이 뭐야?</div>
+          <div class="suggestion-chip" onclick="sendSuggestion('RAG 시스템 설명해줘')">🗂️ RAG 시스템 설명해줘</div>
+        </div>
+      </div>`;
+      document.getElementById('user-input').value = '';
+      document.getElementById('user-input').style.height = 'auto';
+      renderHistory();
+    }
+
+    // ── Suggestion chips ──────────────────────────────────────
+    function sendSuggestion(text) {
+      document.getElementById('user-input').value = text;
+      sendMessage();
+    }
+
+    // ── Render history sidebar ────────────────────────────────
+    function renderHistory() {
+      const list = document.getElementById('history-list');
+      list.innerHTML = sessions.map((s, i) => `
+      <div class="history-item ${i === currentIdx ? 'active' : ''}" onclick="loadSession(${i})">
+        ${s.title}
+      </div>`).join('');
+    }
+
+    // ── Load session ──────────────────────────────────────────
+    function loadSession(idx) {
+      currentIdx = idx;
+      const win = document.getElementById('chat-window');
+      win.innerHTML = '';
+      sessions[idx].messages.forEach(m => appendBubble(m.role, m.text));
+      renderHistory();
+    }
+
+    // ── Append a message bubble ───────────────────────────────
+    function appendBubble(role, text) {
+      const es = document.getElementById('empty-state');
+      if (es) es.remove();
+
+      const win = document.getElementById('chat-window');
+      const row = document.createElement('div');
+      row.className = 'message-row';
+
+      const isUser = role === 'user';
+      const avatar = isUser
+        ? `<div class="avatar user">U</div>`
+        : `<div class="avatar ai">🤖</div>`;
+      const name = isUser ? '나' : 'Multi-Agent AI';
+      const formatted = formatText(text);
+
+      row.innerHTML = `
+      ${avatar}
+      <div class="msg-content">
+        <div class="name">${name}</div>
+        ${formatted}
+      </div>`;
+
+      win.appendChild(row);
+      win.scrollTop = win.scrollHeight;
+      return row;
+    }
+
+    // ── Format text (code blocks + newlines) ─────────────────
+    function formatText(text) {
+      // code blocks
+      text = text.replace(/```([\s\S]*?)```/g, (_, code) =>
+        `<pre>${escapeHtml(code.trim())}</pre>`);
+      // inline code
+      text = text.replace(/`([^`]+)`/g, (_, c) =>
+        `<code style="background:#1a1a1a;padding:2px 6px;border-radius:4px;font-size:13px;">${escapeHtml(c)}</code>`);
+      // newlines
+      text = text.replace(/\n/g, '<br>');
+      return `<div>${text}</div>`;
+    }
+
+    function escapeHtml(s) {
+      return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    // ── Typing indicator ──────────────────────────────────────
+    function showTyping() {
+      const es = document.getElementById('empty-state');
+      if (es) es.remove();
+
+      const win = document.getElementById('chat-window');
+      const row = document.createElement('div');
+      row.className = 'message-row';
+      row.id = 'typing-row';
+      row.innerHTML = `
+      <div class="avatar ai">🤖</div>
+      <div class="msg-content">
+        <div class="name">Multi-Agent AI</div>
+        <span class="typing-dot"></span>
+        <span class="typing-dot"></span>
+        <span class="typing-dot"></span>
+      </div>`;
+      win.appendChild(row);
+      win.scrollTop = win.scrollHeight;
+    }
+
+    function hideTyping() {
+      const t = document.getElementById('typing-row');
+      if (t) t.remove();
+    }
+
+    // ── Send message ──────────────────────────────────────────
+    async function sendMessage() {
+      if (isLoading) return;
+      const textarea = document.getElementById('user-input');
+      const text = textarea.value.trim();
+      if (!text) return;
+
+      // Reset input
+      textarea.value = '';
+      textarea.style.height = 'auto';
+      isLoading = true;
+      document.getElementById('send-btn').disabled = true;
+
+      // Create session if needed
+      if (currentIdx === -1) {
+        sessions.unshift({ title: text.slice(0, 28) + (text.length > 28 ? '…' : ''), messages: [] });
+        currentIdx = 0;
+      }
+
+      // Append user bubble
+      sessions[currentIdx].messages.push({ role: 'user', text });
+      appendBubble('user', text);
+      renderHistory();
+
+      // Show typing
+      showTyping();
+
+      try {
+        const res = await fetch(`${API}?user_input=${encodeURIComponent(text)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+
+        hideTyping();
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ detail: res.statusText }));
+          throw new Error(err.detail || '서버 오류');
+        }
+
+        const answer = await res.json();
+        sessions[currentIdx].messages.push({ role: 'ai', text: answer });
+        appendBubble('ai', answer);
+
+      } catch (err) {
+        hideTyping();
+        appendBubble('ai', `❌ 오류: ${err.message}`);
+      } finally {
+        isLoading = false;
+        document.getElementById('send-btn').disabled = false;
+        textarea.focus();
+      }
+    }
+  </script>
+</body>
+
+</html>

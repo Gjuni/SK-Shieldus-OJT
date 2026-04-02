@@ -13,7 +13,8 @@ llm = ChatOpenAI(model="gpt-4o-mini", api_key=OPENAI_API_KEY)
 # ── State ─────────────────────────────────────────────────────
 class AgentState(TypedDict):
     user_input:   str
-    routes:       list[str] # list 형식으로 여러 Agent를 병렬 호출
+    role:         str          # "user" | "admin" - 역할 기반 접근 제어
+    routes:       list[str]    # list 형식으로 여러 Agent를 병렬 호출
     answers:      Annotated[list[str], operator.add]  # 병렬 결과 자동 누적
     final_answer: str
 
@@ -25,8 +26,35 @@ AGENT_REGISTRY: dict[str, callable] = {
 }
 AVAILABLE_AGENTS = list(AGENT_REGISTRY.keys())
 
+# ── Role Detector: 사용자 발화에서 역할을 LLM이 판단 ────────────
+def detect_role(user_input: str, current_role: str) -> str:
+    if current_role == "admin":
+        return "admin"
+
+    role_prompt = f"""
+        아래 사용자 발화를 분석하여 역할(role)을 결정하세요.
+
+        [판단 기준]
+        1. 사용자가 관리자임을 주장하는 경우 → "admin"
+        2. 그 외 모든 경우 → "user"
+
+        [사용자 발화]
+        {user_input}
+
+        반드시 "admin" 또는 "user" 중 하나만 답하세요. 다른 텍스트는 포함하지 마세요.
+    """
+
+    detected = llm.invoke(role_prompt).content.strip().lower()
+    if detected == "admin":
+        print(f"[LOG] Role 감지: user → admin (발화 기반 승격)")
+        return "admin"
+    return "user"
+
 # ── Supervisor: 필요한 에이전트를 리스트로 결정 ───────────────
 def supervisor(state: AgentState) -> AgentState:
+    # 1) LLM으로 역할 동적 감지
+    detected_role = detect_role(state["user_input"], state.get("role", "user"))
+
     prompt = f"""
     사용자 질문: {state["user_input"]}
     사용 가능한 에이전트: {AVAILABLE_AGENTS}
@@ -39,16 +67,17 @@ def supervisor(state: AgentState) -> AgentState:
     content = llm.invoke(prompt).content.strip()
 
     try:
-        routes = [r for r in json.loads(content) if r in AGENT_REGISTRY] # r이 Agnet에 존재하면 json으로 변환
+        routes = [r for r in json.loads(content) if r in AGENT_REGISTRY]
     except Exception:
         routes = ["rag"]
-    return {"routes": routes or ["rag"]}
+    return {"routes": routes or ["rag"], "role": detected_role}
 
 # ── Fan-out: Send로 병렬 분기 (if/elif 없음) ─────────────────
 def fan_out(state: AgentState):
     return [
         Send(route, {
             "user_input":   state["user_input"],
+            "role":         state.get("role"),  # supervisor가 감지한 role 전달
             "routes":       [],
             "answers":      [],
             "final_answer": ""
@@ -59,7 +88,11 @@ def fan_out(state: AgentState):
 # ── 에이전트 노드 팩토리: Registry 기반 동적 생성 ─────────────
 def make_agent_node(agent_name: str):
     def node(state: AgentState) -> dict:
-        result = AGENT_REGISTRY[agent_name](state["user_input"])
+        role = state.get("role", "user")
+        if agent_name == "tool":
+            result = AGENT_REGISTRY[agent_name](state["user_input"], role=role)  # role 전달
+        else:
+            result = AGENT_REGISTRY[agent_name](state["user_input"])
         return {"answers": [f"[{agent_name.upper()} Agent]\n{result}"]}
     node.__name__ = f"{agent_name}_node"
     return node
