@@ -34,7 +34,7 @@ def read_file(path: str) -> str:
     if not isinstance(path, str):
         return "잘못된 입력입니다."
     
-    with open(path, "r") as f:
+    with open(path, "r", encoding="utf-8") as f:
         return f.read()
 
 # ## DB 설정은 하지 않았지만.. 그래도 구현 config에서 DB 접속 정보를 불러와야함.
