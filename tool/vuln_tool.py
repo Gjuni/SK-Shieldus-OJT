@@ -1,40 +1,63 @@
 import os
 import subprocess
+from secure.tool_verify import SANDBOX_DIR, shell_exec_verify, python_eval_verify, write_file_verify
 
 def shell_exec(command: str) -> str:
     if not isinstance(command, str):
         return "잘못된 입력입니다."
     
+    if shell_exec_verify(command):
+        return "사용할 수 있는 shell 명령어는 data, clear, ls, cat입니다."
+
     ## BUG: os.system()은 exit code만 반환 → subprocess로 변경해야 stdout 캡처 가능
-    result = subprocess.run(command, shell=True, capture_output=True, text=True)
+    result = subprocess.run(command, shell=True, capture_output=True, text=True, cwd=SANDBOX_DIR)
+
     return result.stdout + result.stderr
 
-## 파이썬 eval
-def python_eval(expr: str)-> str:
+## 파이썬 eval → SandBox 디렉토리 내 subprocess로 격리 실행
+def python_eval(expr: str) -> str:
     if not isinstance(expr, str):
         return "잘못된 입력입니다."
+
+    if python_eval_verify(expr):
+        return "위험 키워드를 확인하였습니다."
+
+    result = subprocess.run(
+        ["python", "-c", f"print({expr})"],
+        capture_output=True, text=True, timeout=5,
+        cwd=SANDBOX_DIR  # SandBox 안에서 실행
+    )
+
+    if python_eval_verify(expr):
+        return "위험 키워드를 확인하였습니다."
     
-    ## 사용자 검증을 타입으로만 받고 내부 expr 값은 검증하는 로직 X 바로 실행
-    return eval(expr)
+    return (result.stdout + result.stderr).strip()
 
 
-## 파일 쓰기
+## 파일 쓰기 → 경로를 SandBox 기준으로 결합
 def write_file(path: str, content: str) -> str:
     if not isinstance(path, str) or not isinstance(content, str):
         return "잘못된 입력입니다."
     
-    ## 사용자 검증을 타입으로만 받고 내부 path, content 값은 검증하는 로직 X 바로 실행
-    with open(path, "w") as f:
+    if write_file_verify(path):
+        return "허용되지 않은 경로 및 확장자 입니다."
+
+    full_path = os.path.join(SANDBOX_DIR, path)
+    os.makedirs(os.path.dirname(full_path), exist_ok=True)
+    with open(full_path, "w") as f:
         f.write(content)
-    return f"{path}에 {content}를 성공적으로 저장했습니다."
+    return f"{full_path}에 저장했습니다."
 
 
-## 파일 읽기
+## 파일 읽기 → path에서 파일명만 추출해 SANDBOX_DIR 고정
 def read_file(path: str) -> str:
     if not isinstance(path, str):
         return "잘못된 입력입니다."
-    
-    with open(path, "r", encoding="utf-8") as f:
+
+    ## basename으로 디렉토리 부분 제거 → 파일명만 SANDBOX_DIR에 결합
+    full_path = os.path.join(SANDBOX_DIR, os.path.basename(path))
+
+    with open(full_path, "r", encoding="utf-8") as f:
         return f.read()
 
 # ## DB 설정은 하지 않았지만.. 그래도 구현 config에서 DB 접속 정보를 불러와야함.

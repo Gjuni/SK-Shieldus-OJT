@@ -43,54 +43,80 @@ ADMIN_FUNCS = {
     "read_file": read_file,
 }
 
-def run_orchestration(user_input: str, role: str, temperature: float = 0.7, top_p: float = 0.7) -> str:
-    ## 역할에 따라 시스템 프롬프트 & 함수/Tool 목록 분리
-    system_prompt = build_system_prompt(role)
-    funcs = {**COMMON_FUNCS, **(ADMIN_FUNCS if role == "admin" else {})}
-    tools = OPENAI_TOOLS + (VULN_OPENAI_TOOLS if role == "admin" else [])
+def build_funcs(role: str) -> dict:
+    return {**COMMON_FUNCS, **(ADMIN_FUNCS if role == "admin" else {})}
 
+def build_tools(role: str) -> list:
+    return OPENAI_TOOLS + (VULN_OPENAI_TOOLS if role == "admin" else [])
+
+## [Step 1] 최초 LLM 호출 → 메시지 이력과 직렬화된 tool_calls 반환
+def tool_start(user_input: str, role: str) -> tuple[list, list]:
     msg = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_input}
+        {"role": "system", "content": build_system_prompt(role)},
+        {"role": "user",   "content": user_input}
     ]
+    res = client.chat.completions.create(
+        model="gpt-4o-mini", messages=msg,
+        tools=build_tools(role), temperature=0.7, top_p=0.7
+    )
+    assistant_msg = res.choices[0].message
 
-    ## 도구 선정
-    res = client.chat.completions.create(model="gpt-4o-mini", messages=msg, tools=tools, temperature=temperature, top_p=top_p)
+    if assistant_msg.tool_calls:
+        # 직렬화: 그래프 State(dict)에 저장 가능한 형태로 변환
+        serialized_calls = [
+            {"id": t.id, "name": t.function.name, "arguments": t.function.arguments}
+            for t in assistant_msg.tool_calls
+        ]
+        msg.append({
+            "role": "assistant",
+            "content": assistant_msg.content or "",
+            "tool_calls": [
+                {"id": t.id, "type": "function",
+                 "function": {"name": t.function.name, "arguments": t.function.arguments}}
+                for t in assistant_msg.tool_calls
+            ]
+        })
+    else:
+        serialized_calls = []
+        msg.append({"role": "assistant", "content": assistant_msg.content or ""})
 
-    msg.append(res.choices[0].message)
+    return msg, serialized_calls
 
-    ## 맨 마지막 배열의 tool을 통해 함수 호출
-    if not msg[-1].tool_calls:
-        return msg[-1].content
-        
-    for t in msg[-1].tool_calls:
-        args = json.loads(t.function.arguments)
+## [Step 2] tool_calls 목록 중 첫 번째 하나만 실행 (for 루프 없음)
+def tool_execute_one(messages: list, tool_call: dict, role: str) -> list:
+    msgs = list(messages)  # 원본 불변 유지
+    funcs = build_funcs(role) # 역할에 따른 기능 명시 분류
+    name  = tool_call["name"]
+    args  = json.loads(tool_call["arguments"])
 
-        print(f"[LOG] tool 호출: {t.function.name}, args: {args}")
+    print(f"[LOG] tool 호출: {name}, args: {args}")
 
-        ## BUG FIX: funcs에 등록된 함수를 args로 올바르게 호출
-        func = funcs.get(t.function.name)
-        if func is None:
-            print(f"[LOG] 알 수 없는 함수: {t.function.name}")
-            ans = "Error: 알 수 없는 함수입니다."
-        else:
-            try:
-                ans = str(func(**args))
-                print(f"[LOG] tool 결과: {ans[:100]}")
-            except Exception as e:
-                print(f"[LOG] tool 실행 오류: {e}")
-                ans = f"Error: {e}"
+    func = funcs.get(name)
+    if func is None:
+        print(f"[LOG] 알 수 없는 함수: {name}")
+        ans = "Error: 알 수 없는 함수입니다."
+    else:
+        try:
+            ans = str(func(**args))
+            print(f"[LOG] tool 결과: {ans[:100]}")
+        except Exception as e:
+            print(f"[LOG] tool 실행 오류: {e}")
+            ans = f"Error: {e}"
 
-        ## 템플릿 역할
-        if t.function.name == "calc":
-            ans = calc_template(ans, args.get("a"), args.get("b"), args.get("c"))
-        elif t.function.name == "get_time":
-            ans = get_time_template(ans)
-        
-        msg.append({"tool_call_id": t.id, "role": "tool", "name": t.function.name, "content": ans})
+    ## 일반 함수의 경우 테플릿을 사용
+    if name == "calc":
+        ans = calc_template(ans, args.get("a"), args.get("b"), args.get("c"))
+    elif name == "get_time":
+        ans = get_time_template(ans)
 
-    ## 최종 답변
-    return client.chat.completions.create(model="gpt-4o-mini", messages=msg, temperature=temperature, top_p=top_p).choices[0].message.content
+    msgs.append({"tool_call_id": tool_call["id"], "role": "tool", "name": name, "content": ans})
+    return msgs
+
+## [Step 3] 모든 tool 실행 완료 후 최종 LLM 응답 생성
+def tool_finish(messages: list) -> str:
+    return client.chat.completions.create(
+        model="gpt-4o-mini", messages=messages, temperature=0.7, top_p=0.7
+    ).choices[0].message.content
 
 
 ## Rag Agent

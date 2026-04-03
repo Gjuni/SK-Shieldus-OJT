@@ -1,7 +1,13 @@
 from datetime import datetime
+from secure.tool_verify import calc_paramether
 
 ## 계산기
 def calc(a, b, c) :
+    check = calc_paramether(a,b)
+    
+    if check is True :
+        return "형식에 맞지 않은 파라미터입니다."
+
     if(c == "+") :
         return a + b
     elif(c == "-") :

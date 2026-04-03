@@ -1,5 +1,5 @@
-from multiAgent import app as agent_app
-from fastapi import FastAPI, HTTPException
+from multiAgent import app as agent_app, MAX_GRAPH_ITERATIONS
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -19,7 +19,7 @@ fast.add_middleware(
 
 ## 챗 API
 @fast.post("/chat")
-def chat(user_input: str) -> str:
+def chat(request: Request, user_input: str) -> str:
     try:
         ## input 값에서 확인
         if check_input_prompt(user_input) == True:
@@ -30,12 +30,16 @@ def chat(user_input: str) -> str:
             return "유해한 내용이 포함되어 있습니다."
 
         result = agent_app.invoke({ ## 챗봇 실행
-            "user_input":   user_input,
-            "role":         "",       # 역할 전달
-            "routes":       [],
-            "answers":      [],
-            "final_answer": ""
-        })
+                "user_input":   user_input,
+                "role":         "",       # 역할 전달
+                "routes":       [],
+                "answers":      [],
+                "final_answer": ""
+            },
+            {
+                "recursion_limit": MAX_GRAPH_ITERATIONS # DOS 공격 방어 체계
+            } 
+        )
 
         ## output 값에서 확인
         if check_output_prompt(result["final_answer"]) == True:

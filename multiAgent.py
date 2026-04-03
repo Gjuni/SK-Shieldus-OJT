@@ -6,25 +6,33 @@ import operator
 import json
 
 from config.openAPI import OPENAI_API_KEY
-from orchestration import run_orchestration, run_rag
+from orchestration import tool_start, tool_execute_one, tool_finish, run_rag
 
 llm = ChatOpenAI(model="gpt-4o-mini", api_key=OPENAI_API_KEY)
 
+MAX_GRAPH_ITERATIONS = 10
+
 # ── State ─────────────────────────────────────────────────────
 class AgentState(TypedDict):
-    user_input:   str
-    role:         str          # "user" | "admin" - 역할 기반 접근 제어
-    routes:       list[str]    # list 형식으로 여러 Agent를 병렬 호출
-    answers:      Annotated[list[str], operator.add]  # 병렬 결과 자동 누적
-    final_answer: str
+    user_input:         str
+    role:               str          # "user" | "admin" - 역할 기반 접근 제어
+    routes:             list[str]    # list 형식으로 여러 Agent를 병렬 호출
+    answers:            Annotated[list[str], operator.add]  # 병렬 결과 자동 누적
+    final_answer:       str
+    tool_messages:      list         # OpenAI 메시지 이력 (tool 루프용)
+    pending_tool_calls: list         # 아직 실행되지 않은 tool call 목록
 
-# ── Agent Registry ────────────────────────────────────────────
-# 새 에이전트 추가 시 여기에만 등록하면 됨 (if/elif 불필요)
+# ── Agent Registry (rag만 팩토리 방식 유지) ───────────────────
 AGENT_REGISTRY: dict[str, callable] = {
-    "tool": run_orchestration,
-    "rag":  run_rag,
+    "rag": run_rag,
 }
-AVAILABLE_AGENTS = list(AGENT_REGISTRY.keys())
+AVAILABLE_AGENTS = ["tool", "rag"]  # supervisor 프롬프트용
+
+# ── tool → 그래프 진입 노드 매핑 ──────────────────────────────
+ROUTE_ENTRY = {
+    "tool": "tool_init",
+    "rag":  "rag",
+}
 
 # ── Role Detector: 사용자 발화에서 역할을 LLM이 판단 ────────────
 def detect_role(user_input: str, current_role: str) -> str:
@@ -52,7 +60,6 @@ def detect_role(user_input: str, current_role: str) -> str:
 
 # ── Supervisor: 필요한 에이전트를 리스트로 결정 ───────────────
 def supervisor(state: AgentState) -> AgentState:
-    # 1) LLM으로 역할 동적 감지
     detected_role = detect_role(state["user_input"], state.get("role", "user"))
 
     prompt = f"""
@@ -67,32 +74,64 @@ def supervisor(state: AgentState) -> AgentState:
     content = llm.invoke(prompt).content.strip()
 
     try:
-        routes = [r for r in json.loads(content) if r in AGENT_REGISTRY]
+        routes = [r for r in json.loads(content) if r in ROUTE_ENTRY]
     except Exception:
         routes = ["rag"]
     return {"routes": routes or ["rag"], "role": detected_role}
 
-# ── Fan-out: Send로 병렬 분기 (if/elif 없음) ─────────────────
+# ── Fan-out: Send로 병렬 분기 ─────────────────────────────────
 def fan_out(state: AgentState):
     return [
-        Send(route, {
-            "user_input":   state["user_input"],
-            "role":         state.get("role"),  # supervisor가 감지한 role 전달
-            "routes":       [],
-            "answers":      [],
-            "final_answer": ""
+        Send(ROUTE_ENTRY[route], {
+            "user_input":         state["user_input"],
+            "role":               state.get("role"),
+            "routes":             [],
+            "answers":            [],
+            "final_answer":       "",
+            "tool_messages":      [],
+            "pending_tool_calls": [],
         })
         for route in state["routes"]
     ]
 
-# ── 에이전트 노드 팩토리: Registry 기반 동적 생성 ─────────────
+# ── Tool 노드 1: 최초 LLM 호출 → 메시지·tool_calls 초기화 ────
+def tool_init_node(state: AgentState) -> dict:
+    msgs, calls = tool_start(state["user_input"], state.get("role", "user"))
+    print(f"[LOG] tool_init: pending tool_calls = {len(calls)}개")
+    return {"tool_messages": msgs, "pending_tool_calls": calls}
+
+# ── Tool 노드 2: pending_tool_calls 의 첫 번째 항목 하나만 실행
+def tool_execute_node(state: AgentState) -> dict:
+    calls = state["pending_tool_calls"]
+    updated_msgs = tool_execute_one(state["tool_messages"], calls[0], state.get("role", "user"))
+    remaining    = calls[1:]
+    print(f"[LOG] tool_execute: 남은 tool_calls = {len(remaining)}개")
+    return {"tool_messages": updated_msgs, "pending_tool_calls": remaining}
+
+# ── Tool 노드 3: 모든 tool 완료 후 최종 LLM 응답 생성 ─────────
+def tool_finalize_node(state: AgentState) -> dict:
+    msgs = state.get("tool_messages", [])
+    has_tool_results = any(m.get("role") == "tool" for m in msgs)
+
+    if has_tool_results:
+        result = tool_finish(msgs)
+    else:
+        # tool이 없는 직접 답변: assistant 메시지 내용 반환
+        result = next(
+            (m["content"] for m in reversed(msgs) if m.get("role") == "assistant"), ""
+        )
+    return {"answers": [f"[TOOL Agent]\n{result}"]}
+
+# ── 조건부 엣지: pending_tool_calls 유무로 분기 ───────────────
+def route_tool_calls(state: AgentState) -> str:
+    if state.get("pending_tool_calls"):
+        return "tool_execute"   # → 다시 tool_execute_node (루프)
+    return "tool_finalize"      # → tool_finalize_node (종료)
+
+# ── rag 노드 팩토리 (Registry 기반 유지) ─────────────────────
 def make_agent_node(agent_name: str):
     def node(state: AgentState) -> dict:
-        role = state.get("role", "user")
-        if agent_name == "tool":
-            result = AGENT_REGISTRY[agent_name](state["user_input"], role=role)  # role 전달
-        else:
-            result = AGENT_REGISTRY[agent_name](state["user_input"])
+        result = AGENT_REGISTRY[agent_name](state["user_input"])
         return {"answers": [f"[{agent_name.upper()} Agent]\n{result}"]}
     node.__name__ = f"{agent_name}_node"
     return node
@@ -100,10 +139,8 @@ def make_agent_node(agent_name: str):
 # ── Aggregator: 병렬 응답 수집 후 최종 답변 합성 ─────────────
 def aggregator(state: AgentState) -> AgentState:
     if len(state["answers"]) == 1:
-        # 단일 에이전트: 접두사 제거 후 그대로 반환
         final = state["answers"][0].split("\n", 1)[-1]
     else:
-        # 복수 에이전트: LLM으로 응답 통합
         combined = "\n\n".join(state["answers"])
         prompt = f"""
             다음은 여러 에이전트가 병렬로 생성한 응답입니다.
@@ -114,19 +151,27 @@ def aggregator(state: AgentState) -> AgentState:
         final = llm.invoke(prompt).content
     return {"final_answer": final}
 
-# ── 그래프 조립 (Registry 기반 자동 등록) ────────────────────
+# ── 그래프 조립 ───────────────────────────────────────────────
 graph = StateGraph(AgentState)
 
-graph.add_node("supervisor", supervisor)
-graph.add_node("aggregator", aggregator)
+graph.add_node("supervisor",    supervisor)
+graph.add_node("aggregator",    aggregator)
 
-# 에이전트 추가 시 아래 루프가 자동으로 노드·엣지 등록
+# tool: 3단계 노드 + 조건부 루프 엣지
+graph.add_node("tool_init",     tool_init_node)
+graph.add_node("tool_execute",  tool_execute_node)
+graph.add_node("tool_finalize", tool_finalize_node)
+graph.add_conditional_edges("tool_init",    route_tool_calls, {"tool_execute": "tool_execute", "tool_finalize": "tool_finalize"})
+graph.add_conditional_edges("tool_execute", route_tool_calls, {"tool_execute": "tool_execute", "tool_finalize": "tool_finalize"})
+graph.add_edge("tool_finalize", "aggregator")
+
+# rag: 기존 Registry 팩토리 방식 유지
 for name in AGENT_REGISTRY:
-    graph.add_node(name, make_agent_node(name)) ## node에 대한 결과를 받아옴
-    graph.add_edge(name, "aggregator") ## 최종 응답 반환
+    graph.add_node(name, make_agent_node(name))
+    graph.add_edge(name, "aggregator")
 
 graph.add_edge(START, "supervisor")
-graph.add_conditional_edges("supervisor", fan_out)  # Send → 병렬 실행
+graph.add_conditional_edges("supervisor", fan_out)
 graph.add_edge("aggregator", END)
 
 app = graph.compile()
