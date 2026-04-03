@@ -9,6 +9,7 @@ api_key = os.getenv("cromadb")
 tenant = os.getenv("tenant")
 database = os.getenv("database")
 collection_name = os.getenv("collection")
+collection_name_injection = os.getenv("collection_injection")
 
 client = chromadb.CloudClient(
   api_key=api_key,
@@ -17,6 +18,7 @@ client = chromadb.CloudClient(
 )
 
 collection = client.get_or_create_collection(collection_name)
+injection_collection = client.get_or_create_collection(collection_name_injection)
 
 # HuggingFace 임베딩 모델 로드
 embedding_model = SentenceTransformer("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
@@ -89,6 +91,49 @@ def addData():
     print("\n 모든 데이터 삽입이 완료되었습니다.")
 
 
+def addInjectionData():
+    """
+    LeakSYSTEMPROMPT.txt의 [INJECT] 문장들을 파싱하여
+    보안 차단 전용 컬렉션(injection_guard)에 임베딩합니다.
+    """
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    file_path = os.path.join(base_dir, "..", "metadata", "LeakSYSTEMPROMPT.txt")
+
+    if not os.path.exists(file_path):
+        print(f"[경고] LeakSYSTEMPROMPT.txt 파일을 찾을 수 없습니다: {file_path}")
+        return
+
+    with open(file_path, "r", encoding="utf-8") as f:
+        lines = f.readlines()
+
+    # [INJECT] 태그가 붙은 공격 문장만 추출
+    inject_sentences = []
+    for line in lines:
+        line = line.strip()
+        if line.startswith("[INJECT]"):
+            sentence = line[len("[INJECT]"):].strip()
+            if sentence:
+                inject_sentences.append(sentence)
+
+    if not inject_sentences:
+        print("[경고] [INJECT] 문장을 찾지 못했습니다.")
+        return
+
+    print(f"[보안 DB] {len(inject_sentences)}개의 인젝션 문장을 임베딩 중...")
+    for i, sentence in enumerate(inject_sentences):
+        doc_id = f"inject_{i}"
+        embedding = embedding_model.encode(sentence).tolist()
+        injection_collection.upsert(
+            ids=[doc_id],
+            documents=[sentence],
+            embeddings=[embedding],
+            metadatas=[{"idx": i, "source": "LeakSYSTEMPROMPT"}]
+        )
+        print(f"  [{i+1}/{len(inject_sentences)}] 삽입 완료: {sentence[:50]}")
+
+    print("\n [보안 DB] 인젝션 데이터 삽입이 완료되었습니다.")
+
+
 
 def get_context(query: str) -> str:
     embedding = embedding_model.encode(query).tolist()
@@ -101,3 +146,6 @@ def get_context(query: str) -> str:
     for doc in results['documents'][0]:
         context += doc + "\n"
     return context
+
+if __name__ == "__main__":
+    addInjectionData()
