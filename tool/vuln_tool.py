@@ -14,27 +14,26 @@ def shell_exec(command: str) -> str:
 
     return result.stdout + result.stderr
 
-## 파이썬 eval → SandBox 디렉토리 내 subprocess로 격리 실행
+## ?뚯씠??eval ??SandBox ?붾젆?좊━ ??subprocess濡?寃⑸━ ?ㅽ뻾
 def python_eval(expr: str) -> str:
     if not isinstance(expr, str):
         return "잘못된 입력입니다."
 
     if python_eval_verify(expr):
-        return "위험 키워드를 확인하였습니다."
+        return "허용되지 않은 Python 표현식입니다."
 
     result = subprocess.run(
         ["python", "-c", f"print({expr})"],
         capture_output=True, text=True, timeout=5,
-        cwd=SANDBOX_DIR  # SandBox 안에서 실행
+        cwd=SANDBOX_DIR  
     )
 
     if python_eval_verify(expr):
-        return "위험 키워드를 확인하였습니다."
-    
+        return "허용되지 않은 Python 표현식입니다."
+
     return (result.stdout + result.stderr).strip()
 
 
-## 파일 쓰기 → 경로를 SandBox 기준으로 결합
 def write_file(path: str, content: str) -> str:
     if not isinstance(path, str) or not isinstance(content, str):
         return "잘못된 입력입니다."
@@ -56,6 +55,15 @@ def read_file(path: str) -> str:
 
     ## basename으로 디렉토리 부분 제거 → 파일명만 SANDBOX_DIR에 결합
     full_path = os.path.join(SANDBOX_DIR, os.path.basename(path))
+
+    if not os.path.isfile(full_path):
+        candidates = sorted(
+            [name for name in os.listdir(SANDBOX_DIR) if os.path.isfile(os.path.join(SANDBOX_DIR, name))]
+        )
+        return (
+            f"요청한 파일을 찾을 수 없습니다: {os.path.basename(path)}\n"
+            f"Sandbox 파일 목록: {', '.join(candidates) if candidates else '(비어 있음)'}"
+        )
 
     with open(full_path, "r", encoding="utf-8") as f:
         return f.read()
